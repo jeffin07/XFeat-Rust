@@ -13,10 +13,10 @@ fn main() {
  
     let model = xFeatModelConifg::new().init::<bk>(&device);
  
-    let input = Tensor::<bk, 3>::zeros(Shape::new([1, 100, 100]), &device);
+    let input = Tensor::<bk, 4>::zeros(Shape::new([1, 1, 100, 100]), &device);
     println!("my model {model}");
  
     let out1 = model.forward(input);
  
-    println!("out1 : {out1}");
+    println!("out1 : {}", out1.shape());
 }

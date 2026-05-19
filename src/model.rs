@@ -16,11 +16,9 @@ pub struct BasicLayer<B: Backend>{
  
 impl<B: Backend> BasicLayer<B>{
  
-    pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B,4>{
-        let [dim, height, width] = input.dims();
-        let x  = input.reshape([dim, 1, height, width]);
- 
-        let x = self.conv1.forward(x);
+    pub fn forward(&self, input: Tensor<B, 4>) -> Tensor<B,4>{
+       
+        let x = self.conv1.forward(input);
         let x = self.batchnorm.forward(x);
         let x = self.relu.forward(x);
  
@@ -68,14 +66,15 @@ impl<B: Backend> BasicBlock<B>{
 
     }
 
-    pub fn forward(&self, input: Tensor<B, 3>)-> Tensor<B, 3>{
+    pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B, 4>{
 
+        let mut x = input.clone();
         for basic_layer in &self.block{
-            let  input = basic_layer.forward(input.clone());
+            x = basic_layer.forward(x);
             // let input = x;
 
         }
-        return input;
+        return x;
     }
 }
 
@@ -93,7 +92,7 @@ pub struct xFeatModel<B: Backend>{
 
 impl<B: Backend> xFeatModel<B>{
 
-    pub fn forward(&self, input: Tensor<B, 3>)-> Tensor<B,3>{
+    pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B,4>{
         let x = self.block1.forward(input);
         
         return x
@@ -110,7 +109,7 @@ impl xFeatModelConifg{
     pub fn init<B: Backend>(&self, device: &B::Device) ->xFeatModel<B>{
 
         xFeatModel{
-            block1: BasicBlock::<B>::new::<1>([(1, 4, 3, 1)],device)
+            block1: BasicBlock::<B>::new::<4>([(1, 4, 3, 1), (4, 8, 3, 2), (8, 8, 3, 1), (8, 24, 3, 2)],device)
         }
     }
 }
