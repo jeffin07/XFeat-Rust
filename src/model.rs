@@ -3,7 +3,7 @@ use burn::module::Module;
 use burn::config::Config;
 use burn::tensor::backend::Backend;
 use burn::nn::conv::{Conv2d, Conv2dConfig};
-use burn::nn::{BatchNorm,BatchNormConfig, PaddingConfig2d, Relu};
+use burn::nn::{BatchNorm,BatchNormConfig, PaddingConfig2d, Relu, Sigmoid};
  
 // BasicLayer
 #[derive(Module,Debug)]
@@ -79,6 +79,103 @@ impl<B: Backend> BasicBlock<B>{
     }
 }
 
+// fusion block
+#[derive(Module, Debug)]
+pub struct  FusionBlock<B: Backend>{
+
+    l1: BasicBlock<B>,
+    l2: BasicBlock<B>,
+    l3: Conv2d<B>
+}
+
+impl<B: Backend> FusionBlock<B>{
+
+    pub fn new(device: &B::Device)-> Self{
+
+        FusionBlock{
+            l1: BasicBlock::<B>::new::<1>([(64, 64, 3, 1, 1)],device),
+            l2: BasicBlock::<B>::new::<1>([(64, 64, 3, 1, 1)],device),
+            l3: Conv2dConfig::new([64, 64], [1, 1]).with_padding(PaddingConfig2d::Explicit(0, 0, 0, 0)).init(device)
+        }
+    }
+
+    pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B, 4>{
+
+        let x = self.l1.forward(input);
+        let x = self.l2.forward(x);
+        let x = self.l3.forward(x);
+
+        return x
+    }
+}
+
+// heatmap
+
+#[derive(Module, Debug)]
+pub struct  HeatMapHead<B: Backend>{
+
+    l1: BasicBlock<B>,
+    l2: BasicBlock<B>,
+    l3: Conv2d<B>,
+    act: Sigmoid,
+}
+
+impl<B: Backend> HeatMapHead<B>{
+
+    pub fn new(device: &B::Device)-> Self{
+
+        HeatMapHead{
+            l1: BasicBlock::<B>::new::<1>([(64, 64, 3, 1, 0)],device),
+            l2: BasicBlock::<B>::new::<1>([(64, 64, 3, 1, 0)],device),
+            l3: Conv2dConfig::new([64, 1], [1, 1]).with_stride([1, 1]).with_padding(PaddingConfig2d::Explicit(0, 0, 0, 0)).init(device),
+            act: Sigmoid::new()
+        }
+    }
+
+    pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B, 4>{
+
+        let x = self.l1.forward(input);
+        let x = self.l2.forward(x);
+        let x = self.l3.forward(x);
+        let x = self.act.forward(x);
+
+        return x
+    }
+}
+
+// keypoint Head
+#[derive(Module, Debug)]
+pub struct KeyPointHead<B: Backend>{
+
+    l1: BasicBlock<B>,
+    l2: BasicBlock<B>,
+    l3: BasicBlock<B>,
+    l4: Conv2d<B>,
+}
+
+impl<B: Backend> KeyPointHead<B>{
+
+    pub fn new(device: &B::Device)-> Self{
+
+        KeyPointHead{
+            l1: BasicBlock::<B>::new::<1>([(64, 64, 3, 1, 0)],device),
+            l2: BasicBlock::<B>::new::<1>([(64, 64, 3, 1, 0)],device),
+            l3: BasicBlock::<B>::new::<1>([(64, 64, 3, 1, 0)],device),
+            l4: Conv2dConfig::new([64, 65], [1, 1]).with_stride([1, 1]).with_padding(PaddingConfig2d::Explicit(0, 0, 0, 0)).init(device),
+        }
+    }
+
+    pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B, 4>{
+
+        let x = self.l1.forward(input);
+        let x = self.l2.forward(x);
+        let x = self.l3.forward(x);
+        let x = self.l4.forward(x);
+
+        return x
+    }
+
+}
 // xFeat Model
 
 #[derive(Module, Debug)]
@@ -89,6 +186,9 @@ pub struct xFeatModel<B: Backend>{
     block3: BasicBlock<B>,
     block4: BasicBlock<B>,
     block5: BasicBlock<B>,
+    fusion: FusionBlock<B>,
+    headmap: HeatMapHead<B>,
+    // keypoint: KeyPointHead<B>,
 }
 
 impl<B: Backend> xFeatModel<B>{
@@ -99,6 +199,9 @@ impl<B: Backend> xFeatModel<B>{
         let x = self.block3.forward(x);
         let x = self.block4.forward(x);
         let x = self.block5.forward(x);
+        let x = self.fusion.forward(x);
+        let x = self.headmap.forward(x);
+        // let x = self.keypoint.forward(x); Need to create fusion pyramid
         
         return x
     }
@@ -119,6 +222,9 @@ impl xFeatModelConifg{
             block3: BasicBlock::<B>::new::<3>([(24, 64, 3, 2, 1), (64, 64, 3, 1, 1), (64, 64, 3, 1, 0)],device),
             block4: BasicBlock::<B>::new::<3>([(64, 64, 3, 2, 1), (64, 64, 3, 1, 1), (64, 64, 3, 1, 1)],device),
             block5: BasicBlock::<B>::new::<4>([(64, 128, 3, 2, 1), (128, 128, 3, 1, 1), (128, 128, 3, 1, 1), (128, 64, 3, 1, 0)],device),
+            fusion: FusionBlock::<B>::new(device),
+            headmap: HeatMapHead::<B>::new(device),
+            // keypoint: KeyPointHead::<B>::new(device),
 
         }
     }
