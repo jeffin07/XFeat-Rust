@@ -4,6 +4,7 @@ use burn::config::Config;
 use burn::tensor::backend::Backend;
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::{BatchNorm,BatchNormConfig, PaddingConfig2d, Relu, Sigmoid};
+use burn::nn::modules::pool::{AvgPool2d, AvgPool2dConfig};
  
 // BasicLayer
 #[derive(Module,Debug)]
@@ -76,6 +77,35 @@ impl<B: Backend> BasicBlock<B>{
 
         }
         return x;
+    }
+}
+
+// skip
+#[derive(Module, Debug)]
+pub struct Skip<B: Backend>{
+
+    avgpool: AvgPool2d,//AvgPool2dConfig::new([4, 4]).with_stride([2, 2]).init(device)
+    conv: Conv2d<B>
+}
+
+impl<B: Backend> Skip<B>{
+
+    pub fn new(device: &B::Device)-> Self{
+
+        Skip{
+
+            avgpool: AvgPool2dConfig::new([4, 4]).with_strides([4, 4]).init(),
+            conv: Conv2dConfig::new([1, 24], [1, 1])
+                .with_stride([1, 1]).with_padding(PaddingConfig2d::Explicit(0, 0, 0, 0)).init(device),
+        }
+    }
+
+    pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B, 4>{
+
+        let x = self.avgpool.forward(input);
+        let x = self.conv.forward(x);
+
+        return x
     }
 }
 
@@ -189,21 +219,22 @@ pub struct xFeatModel<B: Backend>{
     fusion: FusionBlock<B>,
     headmap: HeatMapHead<B>,
     // keypoint: KeyPointHead<B>,
+    skip: Skip<B>,
 }
 
 impl<B: Backend> xFeatModel<B>{
 
     pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B,4>{
-        let x = self.block1.forward(input);
-        let x = self.block2.forward(x);
-        let x = self.block3.forward(x);
-        let x = self.block4.forward(x);
-        let x = self.block5.forward(x);
-        let x = self.fusion.forward(x);
-        let x = self.headmap.forward(x);
+        let x1 = self.block1.forward(input.clone());
+        let x2 = self.block2.forward(x1 + self.skip.forward(input));
+        let x3 = self.block3.forward(x2);
+        let x4 = self.block4.forward(x3);
+        let x5 = self.block5.forward(x4);
+        let x6 = self.fusion.forward(x5);
+        let x7 = self.headmap.forward(x6);
         // let x = self.keypoint.forward(x); Need to create fusion pyramid
         
-        return x
+        return x7
     }
 }
 #[derive(Config, Debug)]
@@ -225,6 +256,7 @@ impl xFeatModelConifg{
             fusion: FusionBlock::<B>::new(device),
             headmap: HeatMapHead::<B>::new(device),
             // keypoint: KeyPointHead::<B>::new(device),
+            skip: Skip::<B>::new(device),
 
         }
     }
