@@ -4,7 +4,10 @@ use burn::config::Config;
 use burn::tensor::backend::Backend;
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::{BatchNorm,BatchNormConfig, PaddingConfig2d, Relu, Sigmoid};
-use burn::nn::modules::pool::{AvgPool2d, AvgPool2dConfig};
+use burn::nn::modules::{
+    pool::{AvgPool2d, AvgPool2dConfig},
+    interpolate::{Interpolate2dConfig,InterpolateMode},
+};
  
 // BasicLayer
 #[derive(Module,Debug)]
@@ -227,14 +230,22 @@ impl<B: Backend> xFeatModel<B>{
     pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B,4>{
         let x1 = self.block1.forward(input.clone());
         let x2 = self.block2.forward(x1 + self.skip.forward(input));
-        let x3 = self.block3.forward(x2);
-        let x4 = self.block4.forward(x3);
-        let x5 = self.block5.forward(x4);
-        let x6 = self.fusion.forward(x5);
-        let x7 = self.headmap.forward(x6);
+        let mut x3 = self.block3.forward(x2);
+        let mut x4 = self.block4.forward(x3.clone());
+        let x5 = self.block5.forward(x4.clone());
+        // let x6 = self.fusion.forward(x5);
+        // let x7 = self.headmap.forward(x6);
         // let x = self.keypoint.forward(x); Need to create fusion pyramid
+
+        let x4_interpolate = Interpolate2dConfig::new().with_output_size(Some([x3.dims()[2], x3.dims()[3]])).with_mode(InterpolateMode::Linear).init();
+        let x5_interpolate = Interpolate2dConfig::new().with_output_size(Some([x3.dims()[2], x3.dims()[3]])).with_mode(InterpolateMode::Linear).init();
+        let x4 = x4_interpolate.forward(x4);
+        let x5 = x5_interpolate.forward(x5);
+
+        let feats = self.fusion.forward(x3 + x4 + x5);
+        let heatmap = self.headmap.forward(feats);
         
-        return x7
+        return heatmap
     }
 }
 #[derive(Config, Debug)]
