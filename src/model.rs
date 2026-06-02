@@ -7,6 +7,7 @@ use burn::nn::{BatchNorm,BatchNormConfig, PaddingConfig2d, Relu, Sigmoid};
 use burn::nn::modules::{
     pool::{AvgPool2d, AvgPool2dConfig},
     interpolate::{Interpolate2dConfig,InterpolateMode},
+    Unfold4dConfig,
 };
  
 // BasicLayer
@@ -221,7 +222,7 @@ pub struct xFeatModel<B: Backend>{
     block5: BasicBlock<B>,
     fusion: FusionBlock<B>,
     headmap: HeatMapHead<B>,
-    // keypoint: KeyPointHead<B>,
+    keypoint: KeyPointHead<B>,
     skip: Skip<B>,
 }
 
@@ -229,7 +230,7 @@ impl<B: Backend> xFeatModel<B>{
 
     pub fn forward(&self, input: Tensor<B, 4>)-> Tensor<B,4>{
         let x1 = self.block1.forward(input.clone());
-        let x2 = self.block2.forward(x1 + self.skip.forward(input));
+        let x2 = self.block2.forward(x1 + self.skip.forward(input.clone()));
         let mut x3 = self.block3.forward(x2);
         let mut x4 = self.block4.forward(x3.clone());
         let x5 = self.block5.forward(x4.clone());
@@ -244,8 +245,20 @@ impl<B: Backend> xFeatModel<B>{
 
         let feats = self.fusion.forward(x3 + x4 + x5);
         let heatmap = self.headmap.forward(feats);
+
+        let keypoint = self.keypoint.forward(self.unfold(input.clone()));
         
         return heatmap
+    }
+
+    fn unfold(&self, input: Tensor<B, 4>)-> Tensor<B, 4>{
+
+        let ws: usize = 8; 
+        let [b, c, h, w] = input.dims();
+        let x = input.reshape([b, c, h/ws, ws,  w/ws, ws]).permute([0, 1, 3, 5, 2, 4]).reshape([b, c * ws * ws, h/ws, w/ws]);
+    
+
+        return x
     }
 }
 #[derive(Config, Debug)]
@@ -266,7 +279,7 @@ impl xFeatModelConifg{
             block5: BasicBlock::<B>::new::<4>([(64, 128, 3, 2, 1), (128, 128, 3, 1, 1), (128, 128, 3, 1, 1), (128, 64, 3, 1, 0)],device),
             fusion: FusionBlock::<B>::new(device),
             headmap: HeatMapHead::<B>::new(device),
-            // keypoint: KeyPointHead::<B>::new(device),
+            keypoint: KeyPointHead::<B>::new(device),
             skip: Skip::<B>::new(device),
 
         }
